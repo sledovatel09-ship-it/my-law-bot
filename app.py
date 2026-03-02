@@ -104,4 +104,4 @@ if __name__ == "__main__":
         
         # Використовуємо цей метод замість run_polling()
         import asyncio
-        asyncio.run(application.run_polling(drop_pending_updates=True))
+        asyncio.run(application.run_polling())

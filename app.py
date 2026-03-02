@@ -85,8 +85,23 @@ if __name__ == "__main__":
     if not TELEGRAM_TOKEN:
         print("❌ Помилка: TELEGRAM_TOKEN не встановлено!")
     else:
-        # ВИПРАВЛЕННЯ ПОМИЛКИ MainThread: Створюємо новий цикл подій
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
+        # Прямий асинхронний запуск для нових версій Python
         application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+
+        conv_handler = ConversationHandler(
+            entry_points=[CommandHandler('start', start)],
+            states={
+                MAIN_MENU: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_menu)],
+                SEARCH_SOLDIER: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_search)],
+            },
+            fallbacks=[CommandHandler('start', start)],
+        )
+
+        application.add_handler(conv_handler)
+        application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
+
+        print("🚀 Бот запускається через асинхронний цикл...")
+        
+        # Використовуємо цей метод замість run_polling()
+        import asyncio
+        asyncio.run(application.run_polling(drop_pending_updates=True))

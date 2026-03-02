@@ -73,18 +73,20 @@ async def process_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return MAIN_MENU
 
 # 5. ЗАПУСК
-if __name__ == '__main__':
-    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+if __name__ == "__main__":
+    import asyncio
     
-    conv = ConversationHandler(
-        entry_points=[CommandHandler("start", start)],
-        states={
-            MAIN_MENU: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_menu)],
-            SEARCH_SOLDIER: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_search)],
-        },
-        fallbacks=[],
-    )
+    # Створюємо нову петлю подій для уникнення помилки RuntimeError
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     
-    app.add_handler(conv)
-    app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
-    app.run_polling(drop_pending_updates=True)
+    # Створюємо додаток
+    application = ApplicationBuilder().token(TOKEN).build()
+    
+    # Додаємо обробники (Handlers)
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    application.add_handler(MessageHandler(filters.Document.MimeType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"), handle_document))
+
+    print("Бот запущений...")
+    application.run_polling(drop_pending_updates=True)

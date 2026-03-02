@@ -4,3 +4,5 @@ httpx
 certifi
 certifi
 dnspython
+pandas
+requirements.txt

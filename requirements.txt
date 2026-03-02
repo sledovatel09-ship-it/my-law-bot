@@ -2,7 +2,7 @@ python-telegram-bot
 google-genai
 httpx
 certifi
-certifi
 dnspython
-pandas
 requirements.txt
+pandas
+openpyxl

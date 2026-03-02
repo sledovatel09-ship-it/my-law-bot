@@ -3,16 +3,21 @@ import pandas as pd
 import threading
 import http.server
 import socketserver
+import asyncio
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
 )
 
-# 1. ПОРТ ДЛЯ RENDER
+# 1. ПОРТ ДЛЯ RENDER (Щоб сервіс не вважався неробочим)
 def run_dummy_server():
     PORT = int(os.environ.get("PORT", 10000))
-    server = socketserver.TCPServer(("", PORT), http.server.SimpleHTTPRequestHandler)
-    server.serve_forever()
+    handler = http.server.SimpleHTTPRequestHandler
+    # Додаємо allow_reuse_address, щоб уникнути помилок при перезапуску
+    socketserver.TCPServer.allow_reuse_address = True
+    with socketserver.TCPServer(("", PORT), handler) as httpd:
+        print(f"Сервер заглушка запущений на порту {PORT}")
+        httpd.serve_forever()
 
 threading.Thread(target=run_dummy_server, daemon=True).start()
 
@@ -23,60 +28,65 @@ MAIN_MENU, SEARCH_SOLDIER = range(2)
 
 MENU_KEYBOARD = [["Виплата грошового забезпечення"], ["Статус військовослужбовця"], ["Інші питання"]]
 
-# 3. ФУНКЦІЯ ПОШУКУ В EXCEL
+# 3. ФУНКЦІЯ ПОШУКУ
 def search_excel(query):
     if not os.path.exists(DB_FILE):
-        return "Помилка: Файл бази знань ще не завантажено."
+        return "⚠️ Помилка: Файл бази знань (database.xlsx) не знайдено."
     try:
         df = pd.read_excel(DB_FILE)
-        # Пошук по всіх колонках одночасно
+        # Пошук по всіх колонках
         mask = df.apply(lambda row: row.astype(str).str.contains(query, case=False).any(), axis=1)
         results = df[mask]
         
         if results.empty:
-            return "Нічого не знайдено."
+            return "❌ Нічого не знайдено за вашим запитом."
         
-        # Беремо перший знайдений рядок і красиво оформлюємо
         row = results.iloc[0]
-        return "\n".join([f"**{col}**: {val}" for col, val in row.items()])
+        # Форматуємо результат (видаляємо порожні значення)
+        return "\n".join([f"**{col}**: {val}" for col, val in row.items() if pd.notna(val)])
     except Exception as e:
-        return f"Помилка при читанні Excel: {e}"
+        return f"❌ Помилка при читанні Excel: {e}"
 
 # 4. ОБРОБНИКИ
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Оберіть пункт меню:",
+        "Вітаю! Оберіть пункт меню:",
         reply_markup=ReplyKeyboardMarkup(MENU_KEYBOARD, resize_keyboard=True)
     )
     return MAIN_MENU
 
-# Функція для оновлення файлу бази (просто відправте файл боту)
-async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    file = await update.message.document.get_file()
-    await file.download_to_drive(DB_FILE)
-    await update.message.reply_text("Базу знань Excel успішно оновлено!")
-
 async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     if text == "Статус військовослужбовця":
-        await update.message.reply_text("Введіть ПІБ або ІПН:")
+        await update.message.reply_text("🔎 Введіть ПІБ або ІПН для пошуку:")
         return SEARCH_SOLDIER
     elif text == "Виплата грошового забезпечення":
-        await update.message.reply_text("Нарахування... 50 грн.")
+        await update.message.reply_text("💰 Нарахування... Інформація оновлюється.")
     elif text == "Інші питання":
-        await update.message.reply_text("Контакти: +380666666666")
+        await update.message.reply_text("📞 Контакти: +380000000000")
     return MAIN_MENU
 
 async def process_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     result = search_excel(update.message.text)
-    await update.message.reply_text(result, reply_markup=ReplyKeyboardMarkup(MENU_KEYBOARD, resize_keyboard=True))
+    await update.message.reply_text(
+        result, 
+        reply_markup=ReplyKeyboardMarkup(MENU_KEYBOARD, resize_keyboard=True),
+        parse_mode="Markdown"
+    )
     return MAIN_MENU
 
-# 5. ЗАПУСК
-if __name__ == "__main__":
-    application = ApplicationBuilder().token(TOKEN).build()
-    # ... ваші handler-и ...
+async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    file = await update.message.document.get_file()
+    await file.download_to_drive(DB_FILE)
+    await update.message.reply_text("✅ Базу знань Excel успішно оновлено!")
 
-    import nest_asyncio
-    nest_asyncio.apply()
-    application.run_polling()
+# 5. ЗАПУСК З ВИПРАВЛЕННЯМ EVENT LOOP
+if __name__ == "__main__":
+    if not TELEGRAM_TOKEN:
+        print("❌ Помилка: TELEGRAM_TOKEN не встановлено!")
+    else:
+        # ВИПРАВЛЕННЯ ПОМИЛКИ MainThread: Створюємо новий цикл подій
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+        application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()

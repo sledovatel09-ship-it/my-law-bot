@@ -74,19 +74,9 @@ async def process_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # 5. ЗАПУСК
 if __name__ == "__main__":
-    import asyncio
-    
-    # Створюємо нову петлю подій для уникнення помилки RuntimeError
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    
-    # Створюємо додаток
     application = ApplicationBuilder().token(TOKEN).build()
-    
-    # Додаємо обробники (Handlers)
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    application.add_handler(MessageHandler(filters.Document.MimeType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"), handle_document))
+    # ... ваші handler-и ...
 
-    print("Бот запущений...")
-    application.run_polling(drop_pending_updates=True)
+    import nest_asyncio
+    nest_asyncio.apply()
+    application.run_polling()

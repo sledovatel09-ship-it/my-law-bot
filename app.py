@@ -1,57 +1,90 @@
 import os
-import asyncio
+import pandas as pd
 import threading
 import http.server
 import socketserver
-from google import genai
-from telegram import Update
-from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
+from telegram import Update, ReplyKeyboardMarkup
+from telegram.ext import (
+    ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
+)
 
-# 1. СТВОРЕННЯ ВЕБ-ПОРТУ ДЛЯ RENDER (Щоб статус став зеленим "Live")
+# 1. ПОРТ ДЛЯ RENDER
 def run_dummy_server():
-    class QuietHandler(http.server.SimpleHTTPRequestHandler):
-        def log_message(self, format, *args): return
     PORT = int(os.environ.get("PORT", 10000))
-    with socketserver.TCPServer(("", PORT), QuietHandler) as httpd:
-        httpd.serve_forever()
+    server = socketserver.TCPServer(("", PORT), http.server.SimpleHTTPRequestHandler)
+    server.serve_forever()
 
 threading.Thread(target=run_dummy_server, daemon=True).start()
 
-# 2. НАЛАШТУВАННЯ КЛЮЧІВ ТА КЛІЄНТА
+# 2. НАЛАШТУВАННЯ
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-GEMINI_KEY = os.getenv("GEMINI_API_KEY")
+DB_FILE = "database.xlsx"
+MAIN_MENU, SEARCH_SOLDIER = range(2)
 
-client = genai.Client(api_key=GEMINI_KEY)
+MENU_KEYBOARD = [["Виплата грошового забезпечення"], ["Статус військовослужбовця"], ["Інші питання"]]
 
-# Завантаження бази знань
-try:
-    with open("laws.txt", "r", encoding="utf-8") as f:
-        laws_content = f.read()
-except Exception as e:
-    print(f"Помилка завантаження laws.txt: {e}")
-    laws_content = "База законів тимчасово недоступна."
-
-# 3. ФУНКЦІЯ ОБРОБКИ ПОВІДОМЛЕНЬ
-async def respond(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not update.message.text:
-        return
-
+# 3. ФУНКЦІЯ ПОШУКУ В EXCEL
+def search_excel(query):
+    if not os.path.exists(DB_FILE):
+        return "Помилка: Файл бази знань ще не завантажено."
     try:
-        # Використовуємо суфікс -latest для стабільної роботи API
-        response = client.models.generate_content(
-            model="gemini-1.5-flash-latest",
-            contents=f"Ти професійний юрист. Відповідай чітко, спираючись на цей текст: {laws_content}\n\nПитання клієнта: {update.message.text}"
-        )
-        await update.message.reply_text(response.text)
+        df = pd.read_excel(DB_FILE)
+        # Пошук по всіх колонках одночасно
+        mask = df.apply(lambda row: row.astype(str).str.contains(query, case=False).any(), axis=1)
+        results = df[mask]
+        
+        if results.empty:
+            return "Нічого не знайдено."
+        
+        # Беремо перший знайдений рядок і красиво оформлюємо
+        row = results.iloc[0]
+        return "\n".join([f"**{col}**: {val}" for col, val in row.items()])
     except Exception as e:
-        print(f"Помилка Gemini API: {e}")
-        await update.message.reply_text("Вибачте, сталася помилка при зверненні до ШІ. Спробуйте пізніше.")
+        return f"Помилка при читанні Excel: {e}"
 
-# 4. ЗАПУСК БОТА
+# 4. ОБРОБНИКИ
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "Оберіть пункт меню:",
+        reply_markup=ReplyKeyboardMarkup(MENU_KEYBOARD, resize_keyboard=True)
+    )
+    return MAIN_MENU
+
+# Функція для оновлення файлу бази (просто відправте файл боту)
+async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    file = await update.message.document.get_file()
+    await file.download_to_drive(DB_FILE)
+    await update.message.reply_text("Базу знань Excel успішно оновлено!")
+
+async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    if text == "Статус військовослужбовця":
+        await update.message.reply_text("Введіть ПІБ або ІПН:")
+        return SEARCH_SOLDIER
+    elif text == "Виплата грошового забезпечення":
+        await update.message.reply_text("Нарахування... 50 грн.")
+    elif text == "Інші питання":
+        await update.message.reply_text("Контакти: +380666666666")
+    return MAIN_MENU
+
+async def process_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    result = search_excel(update.message.text)
+    await update.message.reply_text(result, reply_markup=ReplyKeyboardMarkup(MENU_KEYBOARD, resize_keyboard=True))
+    return MAIN_MENU
+
+# 5. ЗАПУСК
 if __name__ == '__main__':
-    # drop_pending_updates=True допомагає уникнути помилки Conflict при перезапуску
-    application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-    application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), respond))
+    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     
-    print("Бот успішно запущений та готовий до роботи!")
-    application.run_polling(drop_pending_updates=True)
+    conv = ConversationHandler(
+        entry_points=[CommandHandler("start", start)],
+        states={
+            MAIN_MENU: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_menu)],
+            SEARCH_SOLDIER: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_search)],
+        },
+        fallbacks=[],
+    )
+    
+    app.add_handler(conv)
+    app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
+    app.run_polling(drop_pending_updates=True)

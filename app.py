@@ -39,6 +39,7 @@ async def respond(update: Update, context: ContextTypes.DEFAULT_TYPE):
             model="gemini-1.5-flash", # Якщо не працює, спробуйте "models/gemini-1.5-flash"
             contents=f"Ти юрист. Базуй відповідь на цьому тексті: {laws_content}\n\nПитання: {update.message.text}"
         )
+        )
         await update.message.reply_text(response.text)
     except Exception as e:
         print(f"Помилка ШІ: {e}")

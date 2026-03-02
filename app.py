@@ -35,7 +35,7 @@ async def respond(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message.text: return
     try:
         response = client.models.generate_content(
-            model="gemini-1.5-flash",
+            model="gemini-1.5-flash-latest",
             contents=f"Ти юрист. Базуй відповідь на цьому тексті: {laws_content}\n\nПитання: {update.message.text}"
         )
         await update.message.reply_text(response.text)
